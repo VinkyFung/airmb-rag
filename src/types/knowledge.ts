@@ -18,6 +18,10 @@ export interface FaqItem {
   updatedAt: string
   updatedBy: string
   version: number
+  categoryL3?: string
+  userRole?: string
+  humanRequired?: boolean
+  reviewStatus?: number
 }
 
 export interface TermItem {

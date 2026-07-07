@@ -2,8 +2,8 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowLeft, Bell, Collection, Document, Files, Fold, House, List, Menu as MenuIcon,
-  Operation, Setting, Tickets, UploadFilled,
+  ArrowLeft, Collection, Document, Files, Fold, House, List, Menu as MenuIcon,
+  Setting, Tickets, UploadFilled,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
