@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus'
 import { ChatDotRound, Connection, Promotion, Refresh, Search } from '@element-plus/icons-vue'
 import { getApiErrorMessage } from '../api/http'
 import { searchFaqs } from '../api/faq'
-import type { FaqSearchItem } from '../api/faq'
+import type { FaqSearchDebug, FaqSearchItem } from '../api/faq'
 
 interface ChatMessage {
   id: number
@@ -13,6 +13,7 @@ interface ChatMessage {
   time: string
   loading?: boolean
   results?: FaqSearchItem[]
+  debug?: FaqSearchDebug | null
 }
 
 const query = ref('')
@@ -91,6 +92,7 @@ async function submitSearch(text?: string) {
         content: buildAssistantContent(data.items),
         time: formatTime(),
         results: data.items,
+        debug: data.debug,
       }
     }
   } catch (error) {
@@ -161,7 +163,10 @@ function resetConversation() {
             <div v-if="message.results?.length" class="retrieval-list">
               <article v-for="item in message.results" :key="item.faq_id">
                 <div>
-                  <strong>{{ item.standard_question || '未命名 FAQ' }}</strong>
+                  <strong>
+                    <template v-if="item.rank">#{{ item.rank }} · </template>
+                    {{ item.standard_question || '未命名 FAQ' }}
+                  </strong>
                   <span>{{ item.knowledge_id || `FAQ_${item.faq_id}` }}</span>
                 </div>
                 <em>{{ scorePercent(item.score) }}</em>
@@ -171,6 +176,28 @@ function resetConversation() {
                   <span v-if="item.category_l2">{{ item.category_l2 }}</span>
                 </footer>
               </article>
+            </div>
+            <div v-if="message.debug" class="retrieval-debug">
+              <div>
+                <span>总耗时</span>
+                <strong>{{ message.debug.total_ms }}ms</strong>
+              </div>
+              <div>
+                <span>Embedding</span>
+                <strong>{{ message.debug.embedding_ms }}ms</strong>
+              </div>
+              <div>
+                <span>Qdrant</span>
+                <strong>{{ message.debug.vector_search_ms }}ms</strong>
+              </div>
+              <div>
+                <span>召回</span>
+                <strong>{{ message.debug.returned }}/{{ topK }}</strong>
+              </div>
+              <p>
+                {{ message.debug.embedding_model }} · {{ message.debug.embedding_dimension }} 维 ·
+                collection: {{ message.debug.vector_collection }} · query length: {{ message.debug.query_length }}
+              </p>
             </div>
           </div>
         </div>

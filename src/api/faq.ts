@@ -24,6 +24,9 @@ export interface FaqApiItem {
   human_required: boolean
   status: number
   review_status: number
+  embedding_status: number
+  embedding_error: string | null
+  embedding_input_hash: string | null
   updated_at: string
   updated_by: string | null
 }
@@ -43,6 +46,80 @@ export interface FaqListData {
     page_size: number
     total: number
   }
+}
+
+export interface FaqImportIssue {
+  level: 'error' | 'warning'
+  sheet: string
+  row: number | null
+  field: string | null
+  message: string
+}
+
+export interface FaqImportPreviewItem {
+  sheet: string
+  row: number
+  knowledge_id: string
+  category_l1: string | null
+  category_l2: string | null
+  category_l3: string | null
+  business_type: string | null
+  standard_question: string
+  paraphrases: string[]
+  answer: string
+  image_url: string | null
+  risk_level: number
+  auth_required: boolean
+  auto_answer: boolean
+  human_required: boolean
+  status: number
+  review_status: number
+  blocked: boolean
+  blocking_reasons: string[]
+  warnings: string[]
+}
+
+export interface FaqImportSheetSummary {
+  sheet: string
+  total_rows: number
+  valid_rows: number
+  invalid_rows: number
+}
+
+export interface FaqImportParseData {
+  file_name: string
+  total_rows: number
+  valid_rows: number
+  invalid_rows: number
+  warning_rows: number
+  preview_limit: number
+  sheets: FaqImportSheetSummary[]
+  items: FaqImportPreviewItem[]
+  issues: FaqImportIssue[]
+}
+
+export interface FaqImportConfirmItem {
+  sheet: string
+  row: number
+  knowledge_id: string
+  faq_id: number | null
+  action: 'created' | 'updated' | 'failed' | 'skipped'
+  success: boolean
+  message: string
+}
+
+export interface FaqImportConfirmData {
+  file_name: string
+  total_rows: number
+  valid_rows: number
+  invalid_rows: number
+  created: number
+  updated: number
+  failed: number
+  skipped: number
+  status: number
+  items: FaqImportConfirmItem[]
+  issues: FaqImportIssue[]
 }
 
 export interface FaqUpdatePayload {
@@ -76,6 +153,7 @@ export interface FaqEmbeddingData {
 export interface FaqEmbeddingRebuildPayload {
   limit: number
   only_pending: boolean
+  faq_ids?: number[]
 }
 
 export interface FaqEmbeddingRebuildItem {
@@ -91,6 +169,25 @@ export interface FaqEmbeddingRebuildData {
   items: FaqEmbeddingRebuildItem[]
 }
 
+export type FaqEmbeddingTaskStatus = 'pending' | 'running' | 'succeeded' | 'partial_failed' | 'failed'
+
+export interface FaqEmbeddingTaskData {
+  task_id: string
+  status: FaqEmbeddingTaskStatus
+  limit: number
+  only_pending: boolean
+  faq_ids: number[] | null
+  total: number
+  progress: number
+  succeeded: number
+  failed: number
+  message: string
+  items: FaqEmbeddingRebuildItem[]
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+}
+
 export interface FaqSearchPayload {
   query: string
   top_k: number
@@ -99,6 +196,7 @@ export interface FaqSearchPayload {
 export interface FaqSearchItem {
   faq_id: number
   knowledge_id: string | null
+  rank: number | null
   score: number
   standard_question: string | null
   answer: string | null
@@ -108,10 +206,22 @@ export interface FaqSearchItem {
   status: number | null
 }
 
+export interface FaqSearchDebug {
+  embedding_model: string
+  embedding_dimension: number
+  vector_collection: string
+  query_length: number
+  embedding_ms: number
+  vector_search_ms: number
+  total_ms: number
+  returned: number
+}
+
 export interface FaqSearchData {
   query: string
   top_k: number
   items: FaqSearchItem[]
+  debug: FaqSearchDebug | null
 }
 
 export async function getFaqList(params: FaqListParams) {
@@ -132,6 +242,31 @@ export async function deleteFaq(faqId: number, updatedBy = '客服运营') {
   return response.data.data
 }
 
+export async function parseFaqImport(file: File, previewLimit = 100) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const response = await http.post<ApiResponse<FaqImportParseData>>('/faqs/import/parse', formData, {
+    params: { preview_limit: previewLimit },
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return response.data.data
+}
+
+export async function confirmFaqImport(file: File, status = 0, updatedBy = '客服运营') {
+  const formData = new FormData()
+  formData.append('file', file)
+  const response = await http.post<ApiResponse<FaqImportConfirmData>>(
+    '/faqs/import/confirm',
+    formData,
+    {
+      params: { status, updated_by: updatedBy },
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: EMBEDDING_API_TIMEOUT,
+    },
+  )
+  return response.data.data
+}
+
 export async function generateFaqEmbedding(faqId: number) {
   const response = await http.post<ApiResponse<FaqEmbeddingData>>(
     `/faqs/${faqId}/embedding`,
@@ -142,10 +277,17 @@ export async function generateFaqEmbedding(faqId: number) {
 }
 
 export async function rebuildFaqEmbeddings(payload: FaqEmbeddingRebuildPayload) {
-  const response = await http.post<ApiResponse<FaqEmbeddingRebuildData>>(
+  const response = await http.post<ApiResponse<FaqEmbeddingTaskData>>(
     '/faqs/embeddings/rebuild',
     payload,
     { timeout: EMBEDDING_API_TIMEOUT },
+  )
+  return response.data.data
+}
+
+export async function getFaqEmbeddingTask(taskId: string) {
+  const response = await http.get<ApiResponse<FaqEmbeddingTaskData>>(
+    `/faqs/embeddings/tasks/${taskId}`,
   )
   return response.data.data
 }

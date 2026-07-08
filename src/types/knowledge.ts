@@ -1,6 +1,7 @@
 export type KnowledgeStatus = '已发布' | '草稿' | '已停用'
 export type RiskLevel = '低' | '中' | '高'
 export type TaskStatus = '已完成' | '解析中' | '等待确认' | '失败'
+export type EmbeddingStatus = '未生成' | '已生成' | '生成失败' | '生成中'
 
 export interface FaqItem {
   id: number
@@ -15,6 +16,9 @@ export interface FaqItem {
   authRequired: boolean
   autoAnswer: boolean
   status: KnowledgeStatus
+  embeddingStatus: EmbeddingStatus
+  embeddingError?: string
+  embeddingInputHash?: string
   updatedAt: string
   updatedBy: string
   version: number
