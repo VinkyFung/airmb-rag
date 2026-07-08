@@ -5,6 +5,7 @@ import TermsView from '../views/TermsView.vue'
 import DocumentsView from '../views/DocumentsView.vue'
 import ImportsView from '../views/ImportsView.vue'
 import FilesView from '../views/FilesView.vue'
+import SearchTestView from '../views/SearchTestView.vue'
 import SettingsView from '../views/SettingsView.vue'
 
 const router = createRouter({
@@ -17,6 +18,7 @@ const router = createRouter({
     { path: '/documents', name: 'documents', component: DocumentsView, meta: { title: '文档知识', subtitle: '查看 PDF 文档解析结果与知识分块' } },
     { path: '/imports', name: 'imports', component: ImportsView, meta: { title: '导入任务', subtitle: '跟踪上传、解析、校验、入库和向量生成' } },
     { path: '/files', name: 'files', component: FilesView, meta: { title: '文件归档', subtitle: '管理 OSS 原始文件、版本与处理记录' } },
+    { path: '/search-test', name: 'search-test', component: SearchTestView, meta: { title: '检索测试', subtitle: '模拟用户提问，验证 FAQ 语义召回与回答效果' } },
     { path: '/settings', name: 'settings', component: SettingsView, meta: { title: '系统配置', subtitle: '查看知识库运行策略与预留配置' } },
   ],
 })

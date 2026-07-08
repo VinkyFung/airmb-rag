@@ -1,8 +1,14 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, Download, EditPen, MoreFilled, Plus, Search, Upload } from '@element-plus/icons-vue'
-import { deleteFaq as deleteFaqApi, getFaqList, updateFaq } from '../api/faq'
+import { Connection, Delete, Download, EditPen, MoreFilled, Plus, Search, Upload } from '@element-plus/icons-vue'
+import {
+  deleteFaq as deleteFaqApi,
+  generateFaqEmbedding,
+  getFaqList,
+  rebuildFaqEmbeddings,
+  updateFaq,
+} from '../api/faq'
 import type { FaqApiItem, FaqListParams, FaqUpdatePayload } from '../api/faq'
 import { getApiErrorCode, getApiErrorMessage } from '../api/http'
 import type { FaqItem, KnowledgeStatus, RiskLevel } from '../types/knowledge'
@@ -15,6 +21,9 @@ const selected = ref<FaqItem[]>([])
 const faqItems = ref<FaqItem[]>([])
 const loading = ref(false)
 const saving = ref(false)
+const embeddingIds = ref<number[]>([])
+const batchEmbeddingVisible = ref(false)
+const batchEmbeddingLoading = ref(false)
 const loadError = ref('')
 const lastUpdated = ref('')
 const page = ref(1)
@@ -22,6 +31,10 @@ const pageSize = ref(20)
 const total = ref(0)
 const drawerVisible = ref(false)
 const drawerMode = ref<'create' | 'edit'>('edit')
+const batchEmbeddingForm = reactive({
+  limit: 100,
+  onlyPending: true,
+})
 
 const blankFaq = (): FaqItem => ({
   id: 0,
@@ -192,6 +205,31 @@ function handleBatch() {
   ElMessage.info('批量状态接口暂未开放')
 }
 
+async function handleSelectedEmbeddingBatch() {
+  if (!selected.value.length) return ElMessage.info('请先选择 FAQ')
+  const ids = selected.value.map((item) => item.id)
+  batchEmbeddingLoading.value = true
+  embeddingIds.value = Array.from(new Set([...embeddingIds.value, ...ids]))
+  let succeeded = 0
+  let failed = 0
+  for (const item of selected.value) {
+    try {
+      await generateFaqEmbedding(item.id)
+      succeeded += 1
+    } catch {
+      failed += 1
+    } finally {
+      embeddingIds.value = embeddingIds.value.filter((id) => id !== item.id)
+    }
+  }
+  batchEmbeddingLoading.value = false
+  if (failed) {
+    ElMessage.warning(`选中项向量生成完成：成功 ${succeeded} 条，失败 ${failed} 条`)
+    return
+  }
+  ElMessage.success(`选中项向量生成完成：成功 ${succeeded} 条`)
+}
+
 async function disableFaq(item: FaqItem) {
   try {
     await ElMessageBox.confirm(
@@ -209,6 +247,47 @@ async function disableFaq(item: FaqItem) {
   }
 }
 
+async function handleGenerateEmbedding(item: FaqItem) {
+  if (embeddingIds.value.includes(item.id)) return
+  embeddingIds.value = [...embeddingIds.value, item.id]
+  try {
+    const data = await generateFaqEmbedding(item.id)
+    ElMessage.success(
+      `向量生成成功：${data.embedding_model} / ${data.embedding_dimension} 维`,
+    )
+  } catch (error) {
+    ElMessage.error(getApiErrorMessage(error, 'FAQ 向量生成失败，请检查后端模型和 Qdrant 服务'))
+  } finally {
+    embeddingIds.value = embeddingIds.value.filter((id) => id !== item.id)
+  }
+}
+
+function openBatchEmbeddingDialog() {
+  batchEmbeddingVisible.value = true
+}
+
+async function submitBatchEmbedding() {
+  batchEmbeddingLoading.value = true
+  try {
+    const data = await rebuildFaqEmbeddings({
+      limit: batchEmbeddingForm.limit,
+      only_pending: batchEmbeddingForm.onlyPending,
+    })
+    batchEmbeddingVisible.value = false
+    if (data.failed) {
+      ElMessage.warning(
+        `批量生成完成：成功 ${data.succeeded} 条，失败 ${data.failed} 条`,
+      )
+      return
+    }
+    ElMessage.success(`批量生成完成：成功 ${data.succeeded} 条`)
+  } catch (error) {
+    ElMessage.error(getApiErrorMessage(error, '批量生成向量失败，请检查后端模型和 Qdrant 服务'))
+  } finally {
+    batchEmbeddingLoading.value = false
+  }
+}
+
 function importExcel() { ElMessage.info('importExcel 方法已预留，当前版本暂不上传文件') }
 function exportExcel() { ElMessage.info('exportExcel 方法已预留，当前版本暂不生成文件') }
 
@@ -223,6 +302,14 @@ onMounted(loadFaqs)
           <el-button type="primary" :icon="Plus" @click="openCreate">新增 FAQ</el-button>
           <el-button :icon="Upload" @click="importExcel">导入 Excel</el-button>
           <el-button :icon="Download" @click="exportExcel">导出 Excel</el-button>
+          <el-button
+            type="success"
+            :icon="Connection"
+            :loading="batchEmbeddingLoading"
+            @click="openBatchEmbeddingDialog"
+          >
+            批量生成向量
+          </el-button>
         </div>
         <div class="filter-actions">
           <el-input
@@ -249,6 +336,15 @@ onMounted(loadFaqs)
         <span>已选择 <b>{{ selected.length }}</b> 项</span>
         <el-button size="small" @click="handleBatch">批量发布</el-button>
         <el-button size="small" @click="handleBatch">批量停用</el-button>
+        <el-button
+          size="small"
+          type="success"
+          :icon="Connection"
+          :loading="batchEmbeddingLoading"
+          @click="handleSelectedEmbeddingBatch"
+        >
+          为选中项生成向量
+        </el-button>
         <button @click="selected = []">取消选择</button>
       </div>
     </section>
@@ -299,9 +395,18 @@ onMounted(loadFaqs)
         <el-table-column label="自动回答" width="90" align="center"><template #default="{ row }"><el-switch :model-value="row.autoAnswer" size="small" disabled /></template></el-table-column>
         <el-table-column label="状态" width="96"><template #default="{ row }"><StatusTag :value="row.status" dot /></template></el-table-column>
         <el-table-column label="更新时间" width="150"><template #default="{ row }"><div class="time-cell">{{ row.updatedAt }}<small>{{ row.updatedBy }}</small></div></template></el-table-column>
-        <el-table-column label="操作" width="132" fixed="right">
+        <el-table-column label="操作" width="210" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" :icon="EditPen" @click="openEdit(row)">编辑</el-button>
+            <el-button
+              link
+              type="success"
+              :icon="Connection"
+              :loading="embeddingIds.includes(row.id)"
+              @click="handleGenerateEmbedding(row)"
+            >
+              生成向量
+            </el-button>
             <el-dropdown>
               <button class="more-button"><el-icon><MoreFilled /></el-icon></button>
               <template #dropdown>
@@ -368,5 +473,30 @@ onMounted(loadFaqs)
         </div>
       </template>
     </el-drawer>
+
+    <el-dialog v-model="batchEmbeddingVisible" title="批量生成 FAQ 向量" width="460px">
+      <p class="dialog-lead">
+        调用后端批量重建接口，将符合条件的已发布 FAQ 生成 BGE-M3 向量并写入 Qdrant。
+        如果后端刚启动，首次加载本地模型可能需要几十秒到数分钟。
+      </p>
+      <el-form label-position="top">
+        <el-form-item label="本次处理上限">
+          <el-input-number v-model="batchEmbeddingForm.limit" :min="1" :max="1000" />
+        </el-form-item>
+        <div class="switch-row">
+          <div>
+            <strong>仅处理待生成/失败数据</strong>
+            <p>开启后会跳过已经成功生成向量的 FAQ</p>
+          </div>
+          <el-switch v-model="batchEmbeddingForm.onlyPending" />
+        </div>
+      </el-form>
+      <template #footer>
+        <el-button @click="batchEmbeddingVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchEmbeddingLoading" @click="submitBatchEmbedding">
+          开始生成
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>

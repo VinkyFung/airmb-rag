@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowLeft, Collection, Document, Files, Fold, House, List, Menu as MenuIcon,
+  ArrowLeft, ChatDotRound, Collection, Document, Files, Fold, House, List, Menu as MenuIcon,
   Setting, Tickets, UploadFilled,
 } from '@element-plus/icons-vue'
 
@@ -21,6 +21,7 @@ const menus = [
   { path: '/documents', label: '文档知识', icon: Document },
   { path: '/imports', label: '导入任务', icon: UploadFilled, badge: 2 },
   { path: '/files', label: '文件归档', icon: Files },
+  { path: '/search-test', label: '检索测试', icon: ChatDotRound },
 ]
 </script>
 
