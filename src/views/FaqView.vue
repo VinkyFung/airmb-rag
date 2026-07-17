@@ -6,10 +6,13 @@ import { Connection, Delete, Download, EditPen, MoreFilled, Plus, Search, Upload
 import {
   confirmFaqImport,
   deleteFaq as deleteFaqApi,
+  disableFaqs,
   generateFaqEmbedding,
   getFaqEmbeddingTask,
   getFaqList,
   parseFaqImport,
+  publishAllFaqs,
+  publishFaqs,
   rebuildFaqEmbeddings,
   updateFaq,
 } from '../api/faq'
@@ -25,6 +28,7 @@ const selected = ref<FaqItem[]>([])
 const faqItems = ref<FaqItem[]>([])
 const loading = ref(false)
 const saving = ref(false)
+const batchStatusLoading = ref(false)
 const embeddingIds = ref<number[]>([])
 const faqImportVisible = ref(false)
 const faqImportParsing = ref(false)
@@ -65,7 +69,7 @@ const blankFaq = (): FaqItem => ({
   humanRequired: false,
   userRole: 'common',
   reviewStatus: 0,
-  status: '草稿',
+  status: '已停用',
   embeddingStatus: '未生成',
   embeddingError: '',
   embeddingInputHash: '',
@@ -92,13 +96,13 @@ const faqImportBlockedRows = computed(() => {
 
 function statusLabel(value: number): KnowledgeStatus {
   if (value === 1) return '已发布'
-  if (value === 2) return '已停用'
-  return '草稿'
+  if (value === 2) return '已删除'
+  return '已停用'
 }
 
 function statusValue(value: KnowledgeStatus) {
   if (value === '已发布') return 1
-  if (value === '已停用') return 2
+  if (value === '已删除') return 2
   return 0
 }
 
@@ -241,9 +245,78 @@ async function saveFaq(targetStatus?: KnowledgeStatus) {
   }
 }
 
-function handleBatch() {
+async function handleBatchStatus(action: 'publish' | 'disable') {
   if (!selected.value.length) return ElMessage.info('请先选择 FAQ')
-  ElMessage.info('批量状态接口暂未开放')
+
+  const ids = selected.value.map((item) => item.id)
+  const actionText = action === 'publish' ? '发布' : '停用'
+  const confirmType = action === 'publish' ? 'success' : 'warning'
+  try {
+    await ElMessageBox.confirm(
+      `确认批量${actionText}选中的 ${ids.length} 条 FAQ？仅状态变化不会重置已生成向量。`,
+      `批量${actionText} FAQ`,
+      {
+        type: confirmType,
+        confirmButtonText: `确认${actionText}`,
+        cancelButtonText: '取消',
+      },
+    )
+  } catch {
+    return
+  }
+
+  batchStatusLoading.value = true
+  try {
+    const data = action === 'publish'
+      ? await publishFaqs({ ids })
+      : await disableFaqs({ ids })
+
+    selected.value = []
+    if (data.failed) {
+      ElMessage.warning(`批量${actionText}完成：成功 ${data.succeeded} 条，失败 ${data.failed} 条`)
+    } else {
+      ElMessage.success(`批量${actionText}完成：成功 ${data.succeeded} 条`)
+    }
+    await loadFaqs()
+  } catch (error) {
+    ElMessage.error(getApiErrorMessage(error, `批量${actionText}失败`))
+  } finally {
+    batchStatusLoading.value = false
+  }
+}
+
+async function handlePublishAll() {
+  try {
+    await ElMessageBox.confirm(
+      '确认发布全部未删除 FAQ？系统会把所有“已停用”的 FAQ 改为“已发布”，已生成向量的状态会保留。',
+      '发布全部 FAQ',
+      {
+        type: 'success',
+        confirmButtonText: '确认发布全部',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch {
+    return
+  }
+
+  batchStatusLoading.value = true
+  try {
+    const data = await publishAllFaqs()
+    selected.value = []
+    if (data.failed) {
+      ElMessage.warning(`发布全部完成：成功 ${data.succeeded} 条，失败 ${data.failed} 条`)
+    } else if (data.succeeded) {
+      ElMessage.success(`发布全部完成：成功 ${data.succeeded} 条`)
+    } else {
+      ElMessage.info('当前没有需要发布的 FAQ')
+    }
+    await loadFaqs()
+  } catch (error) {
+    ElMessage.error(getApiErrorMessage(error, '发布全部失败'))
+  } finally {
+    batchStatusLoading.value = false
+  }
 }
 
 async function handleSelectedEmbeddingBatch() {
@@ -404,7 +477,7 @@ async function confirmFaqImportToKnowledgeBase() {
 
   try {
     await ElMessageBox.confirm(
-      `将把 ${faqImportResult.value.valid_rows} 条有效 FAQ 写入知识库，异常行和冲突行会跳过。重复导入同一文件行会更新已有 FAQ。`,
+      `将把 ${faqImportResult.value.valid_rows} 条有效 FAQ 以“已停用”状态写入知识库，异常行和冲突行会跳过。重复导入同一文件行会更新已有 FAQ。`,
       '确认入库？',
       { type: 'warning', confirmButtonText: '确认入库', cancelButtonText: '取消' },
     )
@@ -450,6 +523,14 @@ onBeforeUnmount(clearBatchEmbeddingPoll)
           <el-button :icon="Upload" @click="importExcel">导入 Excel</el-button>
           <el-button :icon="Download" @click="exportExcel">导出 Excel</el-button>
           <el-button
+            type="primary"
+            plain
+            :loading="batchStatusLoading"
+            @click="handlePublishAll"
+          >
+            发布全部
+          </el-button>
+          <el-button
             type="success"
             :icon="Connection"
             :loading="batchEmbeddingLoading"
@@ -474,15 +555,28 @@ onBeforeUnmount(clearBatchEmbeddingPoll)
           </el-select>
           <el-select v-model="status" clearable placeholder="全部状态" @change="handleFilterChange">
             <el-option label="已发布" value="已发布" />
-            <el-option label="草稿" value="草稿" />
             <el-option label="已停用" value="已停用" />
           </el-select>
         </div>
       </div>
       <div v-if="selected.length" class="selection-bar">
         <span>已选择 <b>{{ selected.length }}</b> 项</span>
-        <el-button size="small" @click="handleBatch">批量发布</el-button>
-        <el-button size="small" @click="handleBatch">批量停用</el-button>
+        <el-button
+          size="small"
+          type="primary"
+          :loading="batchStatusLoading"
+          @click="handleBatchStatus('publish')"
+        >
+          批量发布
+        </el-button>
+        <el-button
+          size="small"
+          type="warning"
+          :loading="batchStatusLoading"
+          @click="handleBatchStatus('disable')"
+        >
+          批量停用
+        </el-button>
         <el-button
           size="small"
           type="success"
@@ -535,7 +629,7 @@ onBeforeUnmount(clearBatchEmbeddingPoll)
       </div>
       <el-table :data="faqItems" stripe row-key="id" @selection-change="selected = $event">
         <el-table-column type="selection" width="48" />
-        <el-table-column label="标准问题" min-width="150">
+        <el-table-column label="标准问题" min-width="140">
           <template #default="{ row }">
             <div class="question-cell">
               <strong>{{ row.question }}</strong>
@@ -543,7 +637,7 @@ onBeforeUnmount(clearBatchEmbeddingPoll)
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="分类" min-width="50">
+        <el-table-column label="分类" min-width="70">
           <template #default="{ row }">
             <div class="category-cell"><span>{{ row.categoryL1 || '-' }}</span><small>{{ row.categoryL2 || '-' }}</small></div>
           </template>
@@ -564,7 +658,7 @@ onBeforeUnmount(clearBatchEmbeddingPoll)
         <el-table-column label="鉴权" width="72" align="center"><template #default="{ row }"><span :class="row.authRequired ? 'yes-text' : 'muted-text'">{{ row.authRequired ? '需要' : '无需' }}</span></template></el-table-column>
         <el-table-column label="自动回答" width="90" align="center"><template #default="{ row }"><el-switch :model-value="row.autoAnswer" size="small" disabled /></template></el-table-column>
         <el-table-column label="状态" width="96"><template #default="{ row }"><StatusTag :value="row.status" dot /></template></el-table-column>
-        <el-table-column label="向量状态" width="112">
+        <el-table-column label="向量状态" width="96">
           <template #default="{ row }">
             <el-popover
               v-if="row.embeddingError"
@@ -653,13 +747,13 @@ onBeforeUnmount(clearBatchEmbeddingPoll)
           </div>
           <div class="switch-row"><div><strong>需要用户鉴权</strong><p>回答前必须确认当前用户登录状态</p></div><el-switch v-model="form.authRequired" /></div>
           <div class="switch-row"><div><strong>允许自动回答</strong><p>关闭后命中该知识时转接人工客服</p></div><el-switch v-model="form.autoAnswer" /></div>
-          <el-form-item label="发布状态"><el-radio-group v-model="form.status"><el-radio-button value="草稿">草稿</el-radio-button><el-radio-button value="已发布">已发布</el-radio-button><el-radio-button value="已停用">已停用</el-radio-button></el-radio-group></el-form-item>
+          <el-form-item label="发布状态"><el-radio-group v-model="form.status"><el-radio-button value="已停用">已停用</el-radio-button><el-radio-button value="已发布">已发布</el-radio-button></el-radio-group></el-form-item>
         </div>
       </el-form>
       <template #footer>
         <div class="drawer-footer">
           <el-button @click="drawerVisible = false">取消</el-button>
-          <el-button :loading="saving" @click="saveFaq('草稿')">保存草稿</el-button>
+          <el-button :loading="saving" @click="saveFaq('已停用')">保存为停用</el-button>
           <el-button type="primary" :loading="saving" @click="saveFaq('已发布')">保存并发布</el-button>
         </div>
       </template>
@@ -672,7 +766,7 @@ onBeforeUnmount(clearBatchEmbeddingPoll)
       @closed="resetFaqImportDialog"
     >
       <p class="dialog-lead">
-        上传 Excel 后会先解析预览；确认入库时会写入 FAQ 知识库。重复导入同一 Sheet 行会更新已有 FAQ，并重置向量状态。
+        上传 Excel 后会先解析预览；确认入库时会以“已停用”状态写入 FAQ 知识库。重复导入同一 Sheet 行会更新已有 FAQ，并重置向量状态。
       </p>
       <el-upload
         v-model:file-list="faqImportFileList"
@@ -809,7 +903,7 @@ onBeforeUnmount(clearBatchEmbeddingPoll)
 
     <el-dialog v-model="batchEmbeddingVisible" title="批量生成 FAQ 向量" width="460px">
       <p class="dialog-lead">
-        调用后端批量重建接口，将符合条件的草稿/已发布 FAQ 生成 BGE-M3 向量并写入 Qdrant。
+        调用后端批量重建接口，将符合条件的停用/已发布 FAQ 生成 BGE-M3 向量并写入 Qdrant。
         如果后端刚启动，首次加载本地模型可能需要几十秒到数分钟。
       </p>
       <el-form label-position="top">

@@ -141,6 +141,30 @@ export interface FaqUpdatePayload {
   updated_by: string
 }
 
+export interface FaqBatchStatusPayload {
+  ids: number[]
+  updated_by?: string
+}
+
+export interface FaqBatchAllStatusPayload {
+  updated_by?: string
+}
+
+export interface FaqBatchStatusItem {
+  id: number
+  success: boolean
+  status: number | null
+  message: string
+}
+
+export interface FaqBatchStatusData {
+  requested: number
+  succeeded: number
+  failed: number
+  status: number
+  items: FaqBatchStatusItem[]
+}
+
 export interface FaqEmbeddingData {
   faq_id: number
   knowledge_id: string
@@ -198,6 +222,9 @@ export interface FaqSearchItem {
   knowledge_id: string | null
   rank: number | null
   score: number
+  vector_score: number | null
+  reranker_score: number | null
+  rank_before_rerank: number | null
   standard_question: string | null
   answer: string | null
   category_l1: string | null
@@ -213,6 +240,12 @@ export interface FaqSearchDebug {
   query_length: number
   embedding_ms: number
   vector_search_ms: number
+  reranker_enabled: boolean
+  reranker_used: boolean
+  reranker_model: string | null
+  reranker_ms: number
+  reranker_error: string | null
+  candidate_top_k: number | null
   total_ms: number
   returned: number
 }
@@ -221,6 +254,23 @@ export interface FaqSearchData {
   query: string
   top_k: number
   items: FaqSearchItem[]
+  debug: FaqSearchDebug | null
+}
+
+export type ChatConfidence = 'high' | 'medium' | 'low' | 'none'
+
+export interface ChatAskPayload {
+  question: string
+  top_k: number
+}
+
+export interface ChatAskData {
+  question: string
+  answer: string
+  answerable: boolean
+  confidence: ChatConfidence
+  score: number | null
+  sources: FaqSearchItem[]
   debug: FaqSearchDebug | null
 }
 
@@ -238,6 +288,42 @@ export async function deleteFaq(faqId: number, updatedBy = '客服运营') {
   const response = await http.delete<ApiResponse<{ id: number; status: number }>>(
     `/faqs/${faqId}`,
     { params: { updated_by: updatedBy } },
+  )
+  return response.data.data
+}
+
+export async function publishFaqs(payload: FaqBatchStatusPayload) {
+  const response = await http.post<ApiResponse<FaqBatchStatusData>>(
+    '/faqs/batch/publish',
+    {
+      updated_by: '客服运营',
+      ...payload,
+    },
+    { timeout: EMBEDDING_API_TIMEOUT },
+  )
+  return response.data.data
+}
+
+export async function publishAllFaqs(payload: FaqBatchAllStatusPayload = {}) {
+  const response = await http.post<ApiResponse<FaqBatchStatusData>>(
+    '/faqs/batch/publish-all',
+    {
+      updated_by: '客服运营',
+      ...payload,
+    },
+    { timeout: EMBEDDING_API_TIMEOUT },
+  )
+  return response.data.data
+}
+
+export async function disableFaqs(payload: FaqBatchStatusPayload) {
+  const response = await http.post<ApiResponse<FaqBatchStatusData>>(
+    '/faqs/batch/disable',
+    {
+      updated_by: '客服运营',
+      ...payload,
+    },
+    { timeout: EMBEDDING_API_TIMEOUT },
   )
   return response.data.data
 }
@@ -294,6 +380,13 @@ export async function getFaqEmbeddingTask(taskId: string) {
 
 export async function searchFaqs(payload: FaqSearchPayload) {
   const response = await http.post<ApiResponse<FaqSearchData>>('/search/faqs', payload, {
+    timeout: EMBEDDING_API_TIMEOUT,
+  })
+  return response.data.data
+}
+
+export async function askChat(payload: ChatAskPayload) {
+  const response = await http.post<ApiResponse<ChatAskData>>('/chat/ask', payload, {
     timeout: EMBEDDING_API_TIMEOUT,
   })
   return response.data.data

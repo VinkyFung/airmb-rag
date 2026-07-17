@@ -1816,11 +1816,30 @@ button {
   vertical-align: -2px;
 }
 
+.answer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  color: #607087;
+  background: #f6f9fd;
+  font-size: 11px;
+}
+
 .retrieval-list {
   display: flex;
   flex-direction: column;
   gap: 9px;
   margin-top: 12px;
+}
+
+.source-title {
+  color: #6c7890;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .retrieval-list article {
@@ -1862,6 +1881,22 @@ button {
   font-size: 11px;
   font-style: normal;
   font-weight: 700;
+}
+
+.score-breakdown {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.score-breakdown span {
+  margin: 0;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #607089;
+  background: #eef4fb;
+  font-size: 10px;
 }
 
 .retrieval-list p {
@@ -1922,6 +1957,10 @@ button {
   color: #7b8798;
   font-size: 11px;
   line-height: 1.5;
+}
+
+.retrieval-debug .debug-error {
+  color: #c45656;
 }
 
 .suggestion-row {
